@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NoteGenius AI — Turn any link into brilliant notes</title>
+<meta name="description" content="Paste a YouTube video or article. Get structured notes, mind maps & action items in seconds." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   NOTEGENIUS AI — DESIGN SYSTEM
+   ============================================================ */
+:root {
+  --bg: #0A0A0F;
+  --bg-elevated: rgba(255, 255, 255, 0.03);
+  --bg-elevated-2: rgba(255, 255, 255, 0.05);
+  --cyan: #00E5FF;
+  --violet: #8B5CF6;
+  --text: #F4F4F8;
+  --text-dim: #9B9BAD;
+  --text-faint: #5E5E70;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-bright: rgba(255, 255, 255, 0.14);
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+::selection { background: rgba(139, 92, 246, 0.4); color: #fff; }
+
+/* ============================================================
+   BACKGROUND — animated gradient mesh + dot grid
+   ============================================================ */
+.bg-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bg-mesh::after {
+  /* dot grid for depth */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.055) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 25%, black 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 25%, black 20%, transparent 75%);
+}
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(110px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.blob-violet {
+  width: 55vw; height: 55vw;
+  min-width: 480px; min-height: 480px;
+  background: radial-gradient(circle, rgba(139,92,246,0.35) 0%, transparent 70%);
+  top: -18%; left: -12%;
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+.blob-cyan {
+  width: 45vw; height: 45vw;
+  min-width: 400px; min-height: 400px;
+  background: radial-gradient(circle, rgba(0,229,255,0.22) 0%, transparent 70%);
+  top: 5%; right: -15%;
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+.blob-deep {
+  width: 60vw; height: 40vw;
+  min-width: 500px; min-height: 350px;
+  background: radial-gradient(circle, rgba(76,29,149,0.32) 0%, transparent 70%);
+  bottom: -25%; left: 20%;
+  animation: drift-c 38s ease-in-out infinite alternate;
+}
+@keyframes drift-a {
+  from { transform: translate(0, 0) scale(1); }
+  to   { transform: translate(10vw, 8vh) scale(1.15); }
+}
+@keyframes drift-b {
+  from { transform: translate(0, 0) scale(1.1); }
+  to   { transform: translate(-8vw, 14vh) scale(0.95); }
+}
+@keyframes drift-c {
+  from { transform: translate(0, 0) scale(1); }
+  to   { transform: translate(-12vw, -6vh) scale(1.2); }
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  width: min(1120px, 100% - 48px);
+  margin: 0 auto;
+}
+@media (max-width: 640px) {
+  .container { width: calc(100% - 40px); }
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(10, 10, 15, 0.6);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 0;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  color: var(--text);
+}
+.logo-mark {
+  width: 30px; height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  background: linear-gradient(135deg, rgba(139,92,246,0.35), rgba(0,229,255,0.2));
+  border: 1px solid var(--border-bright);
+  box-shadow: 0 0 18px rgba(139,92,246,0.35);
+}
+.logo .ai { color: var(--cyan); }
+.nav-cta {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  transition: all 0.3s var(--ease);
+}
+.nav-cta:hover {
+  color: var(--text);
+  border-color: rgba(0,229,255,0.35);
+  box-shadow: 0 0 20px rgba(0,229,255,0.12);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero {
+  text-align: center;
+  padding: clamp(72px, 12vh, 130px) 0 48px;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  padding: 7px 16px;
+  border-radius: 99px;
+  border: 1px solid var(--border-bright);
+  background: linear-gradient(120deg, rgba(139,92,246,0.12), rgba(0,229,255,0.08));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 30px rgba(139,92,246,0.12);
+  animation: fade-up 0.8s var(--ease) both;
+}
+.badge .spark { color: var(--cyan); }
+h1 {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6.5vw, 74px);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+  margin: 28px auto 20px;
+  max-width: 14ch;
+  animation: fade-up 0.8s var(--ease) 0.1s both;
+}
+h1 .gradient-text {
+  background: linear-gradient(100deg, var(--cyan) 0%, var(--violet) 55%, #C084FC 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.subline {
+  font-size: clamp(16px, 2vw, 19px);
+  color: var(--text-dim);
+  max-width: 52ch;
+  margin: 0 auto;
+  font-weight: 450;
+  animation: fade-up 0.8s var(--ease) 0.2s both;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   INPUT SECTION — the centerpiece
+   ============================================================ */
+.input-section {
+  padding: 24px 0 40px;
+  animation: fade-up 0.8s var(--ease) 0.32s both;
+}
+.input-shell {
+  position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+}
+/* glow halo behind the bar */
+.input-shell::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 22px;
+  background: linear-gradient(100deg, rgba(0,229,255,0.5), rgba(139,92,246,0.5), rgba(0,229,255,0.5));
+  background-size: 200% 100%;
+  filter: blur(14px);
+  opacity: 0.18;
+  transition: opacity 0.4s var(--ease);
+  animation: halo-slide 6s linear infinite;
+  z-index: -1;
+}
+.input-shell:focus-within::before { opacity: 0.45; }
+@keyframes halo-slide {
+  from { background-position: 0% 0; }
+  to   { background-position: 200% 0; }
+}
+.input-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 22px;
+  border-radius: 20px;
+  background: rgba(18, 18, 28, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-bright);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 24px 60px -18px rgba(0,0,0,0.7);
+  transition: border-color 0.3s var(--ease);
+}
+.input-shell:focus-within .input-bar { border-color: rgba(0,229,255,0.4); }
+.input-icon { font-size: 17px; opacity: 0.65; flex-shrink: 0; }
+#linkInput {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15.5px;
+  padding: 12px 0;
+}
+#linkInput::placeholder { color: var(--text-faint); }
+
+.btn-generate {
+  position: relative;
+  flex-shrink: 0;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  color: #fff;
+  padding: 14px 26px;
+  border-radius: 14px;
+  background: linear-gradient(115deg, #7C3AED, #8B5CF6 35%, #06B6D4 80%, #00E5FF);
+  background-size: 220% 100%;
+  animation: gradient-pan 5s ease infinite;
+  box-shadow: 0 4px 24px -4px rgba(139,92,246,0.55), inset 0 1px 0 rgba(255,255,255,0.25);
+  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+  white-space: nowrap;
+}
+.btn-generate:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 36px -4px rgba(0,229,255,0.5), 0 4px 24px -4px rgba(139,92,246,0.6), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+.btn-generate:active { transform: translateY(0) scale(0.98); }
+.btn-generate:disabled { opacity: 0.6; cursor: wait; transform: none; }
+@keyframes gradient-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.chips {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+.chip {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: all 0.3s var(--ease);
+}
+.chip:hover {
+  color: var(--text);
+  border-color: rgba(139,92,246,0.45);
+  background: rgba(139,92,246,0.1);
+  box-shadow: 0 0 20px rgba(139,92,246,0.18);
+  transform: translateY(-2px);
+}
+
+.input-error {
+  text-align: center;
+  color: #FCA5A5;
+  font-size: 13.5px;
+  margin-top: 14px;
+  min-height: 20px;
+  opacity: 0;
+  transition: opacity 0.3s var(--ease);
+}
+.input-error.show { opacity: 1; }
+
+/* ============================================================
+   LOADER — pulsing orb
+   ============================================================ */
+.loader {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 56px 0 72px;
+}
+.loader.active { display: flex; }
+.orb-wrap { position: relative; width: 88px; height: 88px; }
+.orb {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 30%, rgba(0,229,255,0.9), rgba(139,92,246,0.85) 60%, rgba(76,29,149,0.9));
+  box-shadow: 0 0 44px rgba(0,229,255,0.45), 0 0 90px rgba(139,92,246,0.4);
+  animation: orb-pulse 1.6s ease-in-out infinite;
+}
+.orb-ring {
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,229,255,0.35);
+  animation: ring-expand 1.6s ease-out infinite;
+}
+.orb-ring.r2 { animation-delay: 0.55s; }
+@keyframes orb-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+@keyframes ring-expand {
+  from { transform: scale(0.75); opacity: 0.9; }
+  to   { transform: scale(1.45); opacity: 0; }
+}
+.loader-status {
+  font-size: 14.5px;
+  color: var(--text-dim);
+  font-weight: 500;
+  min-height: 22px;
+  transition: opacity 0.35s var(--ease);
+}
+
+/* ============================================================
+   GLASS CARD — base
+   ============================================================ */
+.glass {
+  position: relative;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+/* thin gradient border trick */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, rgba(255,255,255,0.16), rgba(255,255,255,0.03) 40%, rgba(139,92,246,0.14));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ============================================================
+   RESULTS
+   ============================================================ */
+.results {
+  display: none;
+  padding: 8px 0 96px;
+  scroll-margin-top: 84px; /* keep the results header clear of the sticky nav */
+}
+.results.active { display: block; }
+
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+}
+.results.active .reveal {
+  animation: fade-up 0.7s var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 0.12s);
+}
+
+.results-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.results-source {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.source-thumb {
+  width: 52px; height: 52px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  background: linear-gradient(135deg, rgba(139,92,246,0.25), rgba(0,229,255,0.15));
+  border: 1px solid var(--border-bright);
+}
+.source-meta .kicker {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.source-meta h2 {
+  font-family: var(--font-display);
+  font-size: clamp(19px, 2.6vw, 24px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.source-meta .duration { font-size: 13px; color: var(--text-faint); }
+
+.results-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.btn-ghost {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: all 0.3s var(--ease);
+  white-space: nowrap;
+}
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: rgba(0,229,255,0.4);
+  box-shadow: 0 0 22px rgba(0,229,255,0.14);
+  transform: translateY(-2px);
+}
+
+/* section label */
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 44px 0 18px;
+}
+.section-label .icon { font-size: 16px; }
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border-bright), transparent);
+}
+
+/* --- summary --- */
+.summary-card {
+  padding: 28px 30px;
+  overflow: hidden;
+}
+.summary-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 3px; height: 100%;
+  background: linear-gradient(180deg, var(--cyan), var(--violet));
+  border-radius: 3px;
+  box-shadow: 0 0 18px rgba(0,229,255,0.5);
+}
+.summary-card p {
+  font-size: 16.5px;
+  line-height: 1.75;
+  color: #D6D6E2;
+  max-width: 72ch;
+}
+.summary-card strong { color: var(--text); font-weight: 600; }
+
+/* --- key points --- */
+.points-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+.point-card {
+  padding: 22px;
+  border-radius: var(--radius-md);
+  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.point-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px -14px rgba(0,0,0,0.7), 0 0 26px rgba(139,92,246,0.12);
+}
+.point-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, rgba(0,229,255,0.14), rgba(139,92,246,0.18));
+  border: 1px solid var(--border-bright);
+}
+.point-card h3 {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+.point-card p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+
+/* --- action items --- */
+.actions-card { padding: 12px 10px; }
+.action-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 15px 18px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.25s var(--ease);
+}
+.action-item:hover { background: rgba(255,255,255,0.035); }
+.action-item + .action-item { border-top: 1px solid rgba(255,255,255,0.05); }
+.action-item input { display: none; }
+.checkbox {
+  flex-shrink: 0;
+  width: 21px; height: 21px;
+  margin-top: 2px;
+  border-radius: 7px;
+  border: 1.5px solid var(--border-bright);
+  background: var(--bg-elevated);
+  display: grid;
+  place-items: center;
+  transition: all 0.3s var(--ease);
+}
+.checkbox svg {
+  width: 12px; height: 12px;
+  stroke: #0A0A0F;
+  stroke-width: 3;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  transition: stroke-dashoffset 0.3s var(--ease) 0.05s;
+}
+.action-item input:checked ~ .checkbox {
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  border-color: transparent;
+  box-shadow: 0 0 16px rgba(0,229,255,0.4);
+}
+.action-item input:checked ~ .checkbox svg { stroke-dashoffset: 0; }
+.action-text {
+  font-size: 14.5px;
+  color: #D6D6E2;
+  transition: color 0.3s var(--ease), opacity 0.3s var(--ease);
+}
+.action-item input:checked ~ .action-text {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  text-decoration-color: rgba(139,92,246,0.6);
+}
+
+/* --- mind map --- */
+.mindmap-card {
+  padding: clamp(14px, 3vw, 30px);
+  overflow: hidden;
+}
+.mindmap-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mindmap-svg { width: 100%; min-width: 620px; height: auto; display: block; }
+.mm-link {
+  stroke: url(#mmLinkGrad);
+  stroke-width: 1.4;
+  fill: none;
+  opacity: 0.55;
+}
+.mm-node { cursor: default; }
+.mm-node circle,
+.mm-node rect {
+  transition: transform 0.3s var(--ease), filter 0.3s var(--ease);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.mm-node:hover circle,
+.mm-node:hover rect { transform: scale(1.07); filter: brightness(1.3); }
+.mm-node text {
+  font-family: var(--font-display);
+  fill: #E8E8F2;
+  pointer-events: none;
+}
+.mm-node .mm-sub { fill: var(--text-faint); font-family: var(--font-body); }
+.mm-center-glow { animation: orb-pulse 3.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+
+/* --- ask anything (chat) --- */
+.chat-card { padding: 26px; }
+.chat-log { display: flex; flex-direction: column; gap: 16px; margin-bottom: 22px; }
+.msg { display: flex; gap: 12px; max-width: 88%; }
+.msg .avatar {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  border: 1px solid var(--border-bright);
+}
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.msg.user .avatar { background: rgba(0,229,255,0.12); }
+.msg.ai .avatar {
+  background: linear-gradient(135deg, rgba(139,92,246,0.3), rgba(0,229,255,0.15));
+  box-shadow: 0 0 14px rgba(139,92,246,0.3);
+}
+.msg .bubble {
+  padding: 13px 17px;
+  border-radius: 16px;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: #D6D6E2;
+}
+.msg.user .bubble {
+  background: rgba(0,229,255,0.09);
+  border: 1px solid rgba(0,229,255,0.18);
+  border-top-right-radius: 5px;
+}
+.msg.ai .bubble {
+  background: var(--bg-elevated-2);
+  border: 1px solid var(--border);
+  border-top-left-radius: 5px;
+}
+.msg.ai .bubble strong { color: var(--text); }
+.msg-appear { animation: fade-up 0.5s var(--ease) both; }
+
+.typing { display: inline-flex; gap: 5px; padding: 4px 0; }
+.typing span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--violet);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.typing span:nth-child(2) { animation-delay: 0.15s; }
+.typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px 8px 8px 18px;
+  border-radius: var(--radius-md);
+  background: rgba(10,10,16,0.5);
+  border: 1px solid var(--border);
+  transition: border-color 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.chat-input-row:focus-within {
+  border-color: rgba(139,92,246,0.45);
+  box-shadow: 0 0 24px rgba(139,92,246,0.14);
+}
+#chatInput {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  padding: 9px 0;
+}
+#chatInput::placeholder { color: var(--text-faint); }
+.btn-send {
+  border: none;
+  cursor: pointer;
+  width: 40px; height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--violet), #06B6D4);
+  box-shadow: 0 2px 14px -2px rgba(139,92,246,0.5);
+  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.btn-send:hover { transform: translateY(-2px); box-shadow: 0 6px 22px -4px rgba(0,229,255,0.5); }
+.btn-send:active { transform: scale(0.94); }
+.btn-send svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translate(-50%, 80px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 12px 22px;
+  border-radius: 99px;
+  background: rgba(20, 20, 32, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0,229,255,0.3);
+  box-shadow: 0 12px 40px -8px rgba(0,0,0,0.8), 0 0 24px rgba(0,229,255,0.15);
+  opacity: 0;
+  transition: transform 0.45s var(--ease), opacity 0.45s var(--ease);
+  pointer-events: none;
+}
+.toast.show { transform: translate(-50%, 0); opacity: 1; }
+.toast .dot { color: var(--cyan); }
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 34px 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--text-faint);
+}
+footer a { color: var(--text-dim); text-decoration: none; transition: color 0.3s var(--ease); }
+footer a:hover { color: var(--cyan); }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 640px) {
+  .input-bar { flex-wrap: wrap; padding: 12px; }
+  #linkInput { width: 100%; flex: 1 1 100%; padding: 10px 6px 12px; }
+  .btn-generate { flex: 1 1 100%; padding: 15px 20px; }
+  .input-icon { display: none; }
+  .results-header { flex-direction: column; align-items: flex-start; }
+  .results-actions { width: 100%; }
+  .btn-ghost { flex: 1; }
+  .msg { max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- Animated background -->
+<div class="bg-mesh" aria-hidden="true">
+  <div class="blob blob-violet"></div>
+  <div class="blob blob-cyan"></div>
+  <div class="blob blob-deep"></div>
+</div>
+
+<!-- Nav -->
+<nav>
+  <div class="container nav-inner">
+    <a class="logo" href="#">
+      <span class="logo-mark">🧠</span>
+      NoteGenius<span class="ai">&nbsp;AI</span>
+    </a>
+    <a class="nav-cta" href="#input">Try it free</a>
+  </div>
+</nav>
+
+<main class="container">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="badge"><span class="spark">⚡</span> AI-Powered Research Assistant</div>
+    <h1>Turn any link into <span class="gradient-text">brilliant notes.</span></h1>
+    <p class="subline">Paste a YouTube video or article. Get structured notes, mind maps &amp; action items in seconds.</p>
+  </header>
+
+  <!-- ============ INPUT ============ -->
+  <section class="input-section" id="input">
+    <div class="input-shell">
+      <form class="input-bar" id="generateForm">
+        <span class="input-icon">🔗</span>
+        <input type="text" id="linkInput" placeholder="Paste a YouTube or article link..."
+               autocomplete="off" spellcheck="false" aria-label="Content link" />
+        <button type="submit" class="btn-generate" id="generateBtn">Generate Notes ✨</button>
+      </form>
+    </div>
+    <div class="chips">
+      <button class="chip" data-url="https://youtube.com/watch?v=dQw4w9WgXcQ">🎥 YouTube video</button>
+      <button class="chip" data-url="https://blog.example.com/deep-work-in-the-age-of-ai">📄 Article</button>
+      <button class="chip" data-url="https://podcasts.example.com/lex-fridman-ep-352">🎙️ Podcast</button>
+    </div>
+    <p class="input-error" id="inputError" role="alert"></p>
+  </section>
+
+  <!-- ============ LOADER ============ -->
+  <div class="loader" id="loader" aria-live="polite">
+    <div class="orb-wrap">
+      <div class="orb-ring"></div>
+      <div class="orb-ring r2"></div>
+      <div class="orb"></div>
+    </div>
+    <p class="loader-status" id="loaderStatus">Fetching content…</p>
+  </div>
+
+  <!-- ============ RESULTS ============ -->
+  <section class="results" id="results" aria-live="polite">
+
+    <!-- header: source + actions -->
+    <div class="results-header reveal" style="--i:0">
+      <div class="results-source">
+        <div class="source-thumb" id="sourceThumb">🎥</div>
+        <div class="source-meta">
+          <div class="kicker" id="sourceKicker">YouTube · 18 min watch</div>
+          <h2 id="sourceTitle">The Science of Deep Work: How to Focus in a Distracted World</h2>
+        </div>
+      </div>
+      <div class="results-actions">
+        <button class="btn-ghost" id="copyBtn">📋 Copy Notes</button>
+        <button class="btn-ghost" id="exportBtn">⬇️ Export</button>
+      </div>
+    </div>
+
+    <!-- summary -->
+    <div class="reveal" style="--i:1">
+      <div class="section-label"><span class="icon">📌</span> Quick Summary</div>
+      <div class="glass summary-card">
+        <p id="summaryText"></p>
+      </div>
+    </div>
+
+    <!-- key points -->
+    <div class="reveal" style="--i:2">
+      <div class="section-label"><span class="icon">💡</span> Key Points</div>
+      <div class="points-grid" id="pointsGrid"></div>
+    </div>
+
+    <!-- action items -->
+    <div class="reveal" style="--i:3">
+      <div class="section-label"><span class="icon">✅</span> Action Items</div>
+      <div class="glass actions-card" id="actionsCard"></div>
+    </div>
+
+    <!-- mind map -->
+    <div class="reveal" style="--i:4">
+      <div class="section-label"><span class="icon">🧠</span> Mind Map</div>
+      <div class="glass mindmap-card">
+        <div class="mindmap-scroll">
+          <svg class="mindmap-svg" id="mindmapSvg" viewBox="0 0 800 460" role="img"
+               aria-label="Mind map of the content's main topic and branches"></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- ask anything -->
+    <div class="reveal" style="--i:5">
+      <div class="section-label"><span class="icon">❓</span> Ask Anything</div>
+      <div class="glass chat-card">
+        <div class="chat-log" id="chatLog"></div>
+        <form class="chat-input-row" id="chatForm">
+          <input type="text" id="chatInput" placeholder="Ask a follow-up question about this content..."
+                 autocomplete="off" aria-label="Follow-up question" />
+          <button type="submit" class="btn-send" aria-label="Send question">
+            <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- Toast -->
+<div class="toast" id="toast"><span class="dot">●</span><span id="toastMsg">Copied!</span></div>
+
+<!-- Footer -->
+<footer>
+  <div class="container">Built by <a href="#">@inflecta.ai</a> &nbsp;•&nbsp; Powered by AI</div>
+</footer>
+
+<script>
+'use strict';
+
+/* ==================================================================
+   DEMO DATA — replace with real API response once backend is wired
+   ================================================================== */
+const DEMO_NOTES = {
+  source: {
+    type: 'youtube',
+    icon: '🎥',
+    kicker: 'YouTube · 18 min watch',
+    title: 'The Science of Deep Work: How to Focus in a Distracted World',
+  },
+  summary:
+    'This talk unpacks the neuroscience behind <strong>deep, focused work</strong> and why the modern attention economy actively works against it. ' +
+    'The speaker argues that focus is a trainable skill — not a personality trait — and lays out a practical system built on ' +
+    '<strong>time-blocking, attention residue management, and deliberate rest</strong>. The core claim: 4 hours of true deep work beats 10 hours of fragmented effort, every single time.',
+  keyPoints: [
+    { icon: '🧬', title: 'Focus is trainable', text: 'Attention works like a muscle — myelin pathways strengthen with each distraction-free session, making deep focus progressively easier.' },
+    { icon: '📉', title: 'Attention residue is real', text: 'Every context switch leaves cognitive "residue" that degrades performance for up to 23 minutes afterward.' },
+    { icon: '⏱️', title: 'Time-block everything', text: 'Scheduling deep work in 90-minute blocks aligned with ultradian rhythms doubles measurable output.' },
+    { icon: '📵', title: 'Environment beats willpower', text: 'Removing the phone from the room outperforms any self-control strategy — friction design wins.' },
+    { icon: '😴', title: 'Rest is part of the work', text: 'Deliberate downtime consolidates learning; the default-mode network solves problems in the background.' },
+    { icon: '📊', title: 'Track leading indicators', text: 'Measure hours of deep work logged — not tasks finished — to build a compounding focus practice.' },
+  ],
+  actionItems: [
+    'Block two 90-minute deep work sessions in tomorrow’s calendar',
+    'Turn off all notifications during focus blocks — phone in another room',
+    'Set up a shutdown ritual to end each workday with a clear mind',
+    'Track deep work hours in a visible scoreboard for 30 days',
+    'Schedule deliberate rest: a 20-minute walk after each focus block',
+  ],
+  mindMap: {
+    center: 'Deep Work',
+    branches: [
+      { label: 'Neuroscience', sub: 'myelin & attention' },
+      { label: 'Time-blocking', sub: '90-min sessions' },
+      { label: 'Environment', sub: 'friction design' },
+      { label: 'Attention residue', sub: '23-min recovery' },
+      { label: 'Deliberate rest', sub: 'default-mode network' },
+      { label: 'Measurement', sub: 'lead indicators' },
+    ],
+  },
+  demoQA: {
+    question: 'What’s the single highest-leverage change I can make this week?',
+    answer:
+      'Start with <strong>environment design</strong>: put your phone in another room during two scheduled 90-minute blocks. ' +
+      'The talk emphasizes this beats willpower-based approaches — you remove the decision entirely. Layer in time-blocking once that habit sticks.',
+  },
+};
+
+/* ==================================================================
+   ★ API PLUG-IN POINT ★
+   ------------------------------------------------------------------
+   generateNotes(url) is the ONLY function that needs to change when
+   the AI backend is ready. It must return a Promise resolving to an
+   object with the same shape as DEMO_NOTES above:
+   { source, summary, keyPoints[], actionItems[], mindMap, demoQA }
+
+   Example future implementation:
+     async function generateNotes(url) {
+       const res = await fetch('/api/generate', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ url }),
+       });
+       if (!res.ok) throw new Error('Generation failed');
+       return res.json();
+     }
+   ================================================================== */
+async function generateNotes(url) {
+  // DEMO MODE: simulate an AI backend with a 2s delay
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  return DEMO_NOTES;
+}
+
+/* Same plug-in pattern for follow-up questions */
+async function askQuestion(question, notes) {
+  // DEMO MODE: canned answer after a short "thinking" delay
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+  return (
+    'Great question! In demo mode I can only show a sample response — ' +
+    'but once the AI backend is connected, I’ll answer using the full content of this link. ' +
+    'Try asking: <strong>“' + notes.demoQA.question + '”</strong>'
+  );
+}
+
+/* ==================================================================
+   DOM REFERENCES
+   ================================================================== */
+const $ = (id) => document.getElementById(id);
+const els = {
+  form: $('generateForm'),
+  input: $('linkInput'),
+  btn: $('generateBtn'),
+  error: $('inputError'),
+  loader: $('loader'),
+  loaderStatus: $('loaderStatus'),
+  results: $('results'),
+  sourceThumb: $('sourceThumb'),
+  sourceKicker: $('sourceKicker'),
+  sourceTitle: $('sourceTitle'),
+  summaryText: $('summaryText'),
+  pointsGrid: $('pointsGrid'),
+  actionsCard: $('actionsCard'),
+  mindmapSvg: $('mindmapSvg'),
+  chatLog: $('chatLog'),
+  chatForm: $('chatForm'),
+  chatInput: $('chatInput'),
+  copyBtn: $('copyBtn'),
+  exportBtn: $('exportBtn'),
+  toast: $('toast'),
+  toastMsg: $('toastMsg'),
+};
+
+let currentNotes = null;
+
+/* ==================================================================
+   GENERATE FLOW
+   ================================================================== */
+const LOADER_MESSAGES = [
+  'Fetching content…',
+  'Reading & understanding…',
+  'Extracting key insights…',
+  'Structuring your notes…',
+];
+
+els.form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const url = els.input.value.trim();
+
+  if (!url) {
+    showError('Paste a link first — or tap an example chip below.');
+    els.input.focus();
+    return;
+  }
+  if (!/^(https?:\/\/)?[\w.-]+\.[a-z]{2,}(\/\S*)?$/i.test(url)) {
+    showError('That doesn’t look like a valid link. Try a full URL.');
+    return;
+  }
+
+  hideError();
+  els.btn.disabled = true;
+  els.btn.textContent = 'Generating…';
+  els.results.classList.remove('active');
+  els.loader.classList.add('active');
+
+  // cycle loader status messages
+  let msgIndex = 0;
+  els.loaderStatus.textContent = LOADER_MESSAGES[0];
+  const msgTimer = setInterval(() => {
+    msgIndex = (msgIndex + 1) % LOADER_MESSAGES.length;
+    els.loaderStatus.style.opacity = 0;
+    setTimeout(() => {
+      els.loaderStatus.textContent = LOADER_MESSAGES[msgIndex];
+      els.loaderStatus.style.opacity = 1;
+    }, 200);
+  }, 900);
+
+  try {
+    const notes = await generateNotes(url);
+    currentNotes = notes;
+    renderNotes(notes);
+    els.loader.classList.remove('active');
+    // force reflow so staggered reveal animations restart
+    void els.results.offsetWidth;
+    els.results.classList.add('active');
+    els.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    showError('Something went wrong generating notes. Please try again.');
+    els.loader.classList.remove('active');
+  } finally {
+    clearInterval(msgTimer);
+    els.btn.disabled = false;
+    els.btn.textContent = 'Generate Notes ✨';
+  }
+});
+
+function showError(msg) {
+  els.error.textContent = msg;
+  els.error.classList.add('show');
+}
+function hideError() {
+  els.error.classList.remove('show');
+}
+
+/* example chips fill the input */
+document.querySelectorAll('.chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    els.input.value = chip.dataset.url;
+    hideError();
+    els.input.focus();
+  });
+});
+
+/* ==================================================================
+   RENDERING
+   ================================================================== */
+function renderNotes(notes) {
+  // source header
+  els.sourceThumb.textContent = notes.source.icon;
+  els.sourceKicker.textContent = notes.source.kicker;
+  els.sourceTitle.textContent = notes.source.title;
+
+  // summary (curated demo HTML — swap to textContent for untrusted API data)
+  els.summaryText.innerHTML = notes.summary;
+
+  // key points
+  els.pointsGrid.innerHTML = notes.keyPoints
+    .map(
+      (p) => `
+      <div class="glass point-card">
+        <div class="point-icon">${p.icon}</div>
+        <h3>${p.title}</h3>
+        <p>${p.text}</p>
+      </div>`
+    )
+    .join('');
+
+  // action items
+  els.actionsCard.innerHTML = notes.actionItems
+    .map(
+      (item, i) => `
+      <label class="action-item">
+        <input type="checkbox" id="action-${i}" />
+        <span class="checkbox" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><polyline points="4 12 10 18 20 6"/></svg>
+        </span>
+        <span class="action-text">${item}</span>
+      </label>`
+    )
+    .join('');
+
+  renderMindMap(notes.mindMap);
+
+  // seed chat with the demo Q&A
+  els.chatLog.innerHTML = '';
+  appendMessage('user', notes.demoQA.question);
+  appendMessage('ai', notes.demoQA.answer);
+}
+
+/* --- mind map: center node + radial branches, drawn with SVG --- */
+function renderMindMap(map) {
+  const W = 800, H = 460;
+  const cx = W / 2, cy = H / 2;
+  const n = map.branches.length;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = els.mindmapSvg;
+  svg.innerHTML = '';
+
+  // defs: gradients + glow filter
+  svg.insertAdjacentHTML(
+    'beforeend',
+    `<defs>
+       <!-- userSpaceOnUse: objectBoundingBox gradients vanish on perfectly vertical paths -->
+       <linearGradient id="mmLinkGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="${H}">
+         <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.7"/>
+         <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0.7"/>
+       </linearGradient>
+       <radialGradient id="mmCenterGrad" cx="35%" cy="30%" r="80%">
+         <stop offset="0%" stop-color="#7DEFFF"/>
+         <stop offset="45%" stop-color="#8B5CF6"/>
+         <stop offset="100%" stop-color="#4C1D95"/>
+       </radialGradient>
+       <filter id="mmGlow" x="-80%" y="-80%" width="260%" height="260%">
+         <feGaussianBlur stdDeviation="7" result="blur"/>
+         <feMerge>
+           <feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/>
+         </feMerge>
+       </filter>
+     </defs>`
+  );
+
+  const linksGroup = document.createElementNS(svgNS, 'g');
+  const nodesGroup = document.createElementNS(svgNS, 'g');
+  svg.appendChild(linksGroup);
+  svg.appendChild(nodesGroup);
+
+  map.branches.forEach((branch, i) => {
+    // distribute around the center, slightly elliptical to fit the canvas
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const rx = 285, ry = 165;
+    const bx = cx + Math.cos(angle) * rx;
+    const by = cy + Math.sin(angle) * ry;
+
+    // curved connector
+    const mx = cx + Math.cos(angle) * rx * 0.5;
+    const my = cy + Math.sin(angle) * ry * 0.5 - 14;
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', `M ${cx} ${cy} Q ${mx} ${my} ${bx} ${by}`);
+    path.setAttribute('class', 'mm-link');
+    linksGroup.appendChild(path);
+
+    // branch node (pill)
+    const g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('class', 'mm-node');
+    const pillW = Math.max(120, branch.label.length * 8.2 + 40);
+    g.innerHTML =
+      `<rect x="${bx - pillW / 2}" y="${by - 26}" width="${pillW}" height="52" rx="15"
+             fill="rgba(20,20,34,0.9)" stroke="rgba(139,92,246,0.5)" stroke-width="1" filter="url(#mmGlow)"/>
+       <circle cx="${bx - pillW / 2 + 18}" cy="${by}" r="4" fill="#00E5FF" filter="url(#mmGlow)"/>
+       <text x="${bx - pillW / 2 + 32}" y="${by - 2}" font-size="13" font-weight="600">${branch.label}</text>
+       <text x="${bx - pillW / 2 + 32}" y="${by + 15}" font-size="10.5" class="mm-sub">${branch.sub}</text>`;
+    nodesGroup.appendChild(g);
+  });
+
+  // center node on top
+  const center = document.createElementNS(svgNS, 'g');
+  center.setAttribute('class', 'mm-node');
+  center.innerHTML =
+    `<circle class="mm-center-glow" cx="${cx}" cy="${cy}" r="52" fill="url(#mmCenterGrad)" filter="url(#mmGlow)"/>
+     <circle cx="${cx}" cy="${cy}" r="52" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+     <text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="15" font-weight="700">${map.center}</text>`;
+  nodesGroup.appendChild(center);
+}
+
+/* ==================================================================
+   CHAT — ask anything
+   ================================================================== */
+function appendMessage(role, html) {
+  const div = document.createElement('div');
+  div.className = `msg ${role} msg-appear`;
+  div.innerHTML = `
+    <div class="avatar">${role === 'user' ? '🧑' : '🧠'}</div>
+    <div class="bubble">${html}</div>`;
+  els.chatLog.appendChild(div);
+  return div;
+}
+
+els.chatForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = els.chatInput.value.trim();
+  if (!q || !currentNotes) return;
+  els.chatInput.value = '';
+
+  // escape user input before injecting
+  const safe = q.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  appendMessage('user', safe);
+
+  const thinking = appendMessage('ai', '<span class="typing"><span></span><span></span><span></span></span>');
+  thinking.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const answer = await askQuestion(q, currentNotes);
+  thinking.querySelector('.bubble').innerHTML = answer;
+  thinking.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+/* ==================================================================
+   COPY & EXPORT
+   ================================================================== */
+function notesToMarkdown(notes) {
+  const strip = (html) => html.replace(/<[^>]+>/g, '');
+  return [
+    `# ${notes.source.title}`,
+    `> ${notes.source.kicker} — notes by NoteGenius AI`,
+    '',
+    '## 📌 Quick Summary',
+    strip(notes.summary),
+    '',
+    '## 💡 Key Points',
+    ...notes.keyPoints.map((p) => `- **${p.title}** — ${p.text}`),
+    '',
+    '## ✅ Action Items',
+    ...notes.actionItems.map((a) => `- [ ] ${a}`),
+    '',
+    '## 🧠 Mind Map',
+    `**${notes.mindMap.center}**`,
+    ...notes.mindMap.branches.map((b) => `- ${b.label} (${b.sub})`),
+    '',
+    '---',
+    '_Generated by NoteGenius AI · @inflecta.ai_',
+  ].join('\n');
+}
+
+els.copyBtn.addEventListener('click', async () => {
+  if (!currentNotes) return;
+  try {
+    await navigator.clipboard.writeText(notesToMarkdown(currentNotes));
+    showToast('Notes copied to clipboard');
+  } catch {
+    showToast('Copy failed — your browser blocked clipboard access');
+  }
+});
+
+els.exportBtn.addEventListener('click', () => {
+  if (!currentNotes) return;
+  const blob = new Blob([notesToMarkdown(currentNotes)], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'notegenius-notes.md';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('Notes exported as Markdown');
+});
+
+/* ==================================================================
+   TOAST
+   ================================================================== */
+let toastTimer;
+function showToast(msg) {
+  els.toastMsg.textContent = msg;
+  els.toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.remove('show'), 2600);
+}
+</script>
+</body>
+</html>

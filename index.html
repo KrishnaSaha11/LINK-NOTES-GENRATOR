@@ -867,9 +867,9 @@ footer a:hover { color: var(--cyan); }
       </form>
     </div>
     <div class="chips">
-      <button class="chip" data-url="https://youtube.com/watch?v=dQw4w9WgXcQ">🎥 YouTube video</button>
-      <button class="chip" data-url="https://blog.example.com/deep-work-in-the-age-of-ai">📄 Article</button>
-      <button class="chip" data-url="https://podcasts.example.com/lex-fridman-ep-352">🎙️ Podcast</button>
+      <button class="chip" data-url="https://www.youtube.com/watch?v=arj7oStGLkU">🎥 YouTube video</button>
+      <button class="chip" data-url="https://www.paulgraham.com/greatwork.html">📄 Article</button>
+      <button class="chip" data-url="https://www.youtube.com/watch?v=cdiD-9MMpb0">🎙️ Podcast</button>
     </div>
     <p class="input-error" id="inputError" role="alert"></p>
   </section>
@@ -963,86 +963,96 @@ footer a:hover { color: var(--cyan); }
 'use strict';
 
 /* ==================================================================
-   DEMO DATA — replace with real API response once backend is wired
-   ================================================================== */
-const DEMO_NOTES = {
-  source: {
-    type: 'youtube',
-    icon: '🎥',
-    kicker: 'YouTube · 18 min watch',
-    title: 'The Science of Deep Work: How to Focus in a Distracted World',
-  },
-  summary:
-    'This talk unpacks the neuroscience behind <strong>deep, focused work</strong> and why the modern attention economy actively works against it. ' +
-    'The speaker argues that focus is a trainable skill — not a personality trait — and lays out a practical system built on ' +
-    '<strong>time-blocking, attention residue management, and deliberate rest</strong>. The core claim: 4 hours of true deep work beats 10 hours of fragmented effort, every single time.',
-  keyPoints: [
-    { icon: '🧬', title: 'Focus is trainable', text: 'Attention works like a muscle — myelin pathways strengthen with each distraction-free session, making deep focus progressively easier.' },
-    { icon: '📉', title: 'Attention residue is real', text: 'Every context switch leaves cognitive "residue" that degrades performance for up to 23 minutes afterward.' },
-    { icon: '⏱️', title: 'Time-block everything', text: 'Scheduling deep work in 90-minute blocks aligned with ultradian rhythms doubles measurable output.' },
-    { icon: '📵', title: 'Environment beats willpower', text: 'Removing the phone from the room outperforms any self-control strategy — friction design wins.' },
-    { icon: '😴', title: 'Rest is part of the work', text: 'Deliberate downtime consolidates learning; the default-mode network solves problems in the background.' },
-    { icon: '📊', title: 'Track leading indicators', text: 'Measure hours of deep work logged — not tasks finished — to build a compounding focus practice.' },
-  ],
-  actionItems: [
-    'Block two 90-minute deep work sessions in tomorrow’s calendar',
-    'Turn off all notifications during focus blocks — phone in another room',
-    'Set up a shutdown ritual to end each workday with a clear mind',
-    'Track deep work hours in a visible scoreboard for 30 days',
-    'Schedule deliberate rest: a 20-minute walk after each focus block',
-  ],
-  mindMap: {
-    center: 'Deep Work',
-    branches: [
-      { label: 'Neuroscience', sub: 'myelin & attention' },
-      { label: 'Time-blocking', sub: '90-min sessions' },
-      { label: 'Environment', sub: 'friction design' },
-      { label: 'Attention residue', sub: '23-min recovery' },
-      { label: 'Deliberate rest', sub: 'default-mode network' },
-      { label: 'Measurement', sub: 'lead indicators' },
-    ],
-  },
-  demoQA: {
-    question: 'What’s the single highest-leverage change I can make this week?',
-    answer:
-      'Start with <strong>environment design</strong>: put your phone in another room during two scheduled 90-minute blocks. ' +
-      'The talk emphasizes this beats willpower-based approaches — you remove the decision entirely. Layer in time-blocking once that habit sticks.',
-  },
-};
-
-/* ==================================================================
-   ★ API PLUG-IN POINT ★
+   ★ API LAYER ★
    ------------------------------------------------------------------
-   generateNotes(url) is the ONLY function that needs to change when
-   the AI backend is ready. It must return a Promise resolving to an
-   object with the same shape as DEMO_NOTES above:
-   { source, summary, keyPoints[], actionItems[], mindMap, demoQA }
-
-   Example future implementation:
-     async function generateNotes(url) {
-       const res = await fetch('/api/generate', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ url }),
-       });
-       if (!res.ok) throw new Error('Generation failed');
-       return res.json();
-     }
+   generateNotes(url) calls the Flask backend (app.py) and adapts its
+   response into the shape the UI renders:
+   { source, summary, keyPoints[], actionItems[], mindMap }
    ================================================================== */
+const API_BASE = 'http://localhost:5000';
+
 async function generateNotes(url) {
-  // DEMO MODE: simulate an AI backend with a 2s delay
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  return DEMO_NOTES;
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+  } catch {
+    // fetch itself failed → server not running / CORS / network
+    throw new Error('Could not reach the backend — is Flask running on port 5000?');
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('The server returned an unexpected response. Please try again.');
+  }
+  if (!res.ok) throw new Error(data.error || 'Generation failed. Please try again.');
+
+  return notesFromApi(data);
 }
 
-/* Same plug-in pattern for follow-up questions */
+/* Escape API text before it's injected via innerHTML */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+const POINT_ICONS = ['💡', '🧬', '⏱️', '📊', '🚀', '🎯', '🔑', '🧭'];
+
+/* Adapt the backend response → the render shape the UI expects */
+function notesFromApi(data) {
+  const src = data.source || {};
+  const isVideo = src.type === 'youtube';
+  const words = src.word_count
+    ? ` · ${Number(src.word_count).toLocaleString()} words analyzed` : '';
+
+  const keyPoints = (data.key_points || []).map((p, i) => ({
+    icon: POINT_ICONS[i % POINT_ICONS.length],
+    title: escapeHtml(p.title),
+    text: escapeHtml(p.explanation),
+  }));
+
+  return {
+    source: {
+      type: src.type || 'article',
+      icon: isVideo ? '🎥' : '📄',
+      kicker: (isVideo ? 'YouTube' : 'Article') + words,
+      title: src.title || 'Untitled content',
+    },
+    summary: escapeHtml(data.summary),
+    keyPoints,
+    actionItems: (data.action_items || []).map(escapeHtml),
+    // Build the mind map from the key points: center = source title,
+    // one branch per point (labels truncated to fit the pills).
+    mindMap: {
+      center: truncate(src.title || 'Key Ideas', 16),
+      branches: keyPoints.slice(0, 6).map((p) => ({
+        label: truncate(p.title, 22),
+        sub: truncate(p.text, 28),
+      })),
+    },
+  };
+}
+
+function truncate(str, max) {
+  str = String(str);
+  return str.length > max ? str.slice(0, max - 1).trimEnd() + '…' : str;
+}
+
+/* Follow-up chat — backend endpoint for this is the next step (/ask) */
 async function askQuestion(question, notes) {
-  // DEMO MODE: canned answer after a short "thinking" delay
-  await new Promise((resolve) => setTimeout(resolve, 1400));
+  await new Promise((resolve) => setTimeout(resolve, 1200));
   return (
-    'Great question! In demo mode I can only show a sample response — ' +
-    'but once the AI backend is connected, I’ll answer using the full content of this link. ' +
-    'Try asking: <strong>“' + notes.demoQA.question + '”</strong>'
+    'Follow-up questions aren’t wired to the backend yet — the ' +
+    '<strong>/summarize</strong> endpoint only generates notes. An ' +
+    '<strong>/ask</strong> endpoint is the next step!'
   );
 }
 
@@ -1128,7 +1138,8 @@ els.form.addEventListener('submit', async (e) => {
     els.results.classList.add('active');
     els.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
-    showError('Something went wrong generating notes. Please try again.');
+    // Backend errors carry a human-readable message — show it directly.
+    showError(err.message || 'Something went wrong generating notes. Please try again.');
     els.loader.classList.remove('active');
   } finally {
     clearInterval(msgTimer);
@@ -1194,10 +1205,12 @@ function renderNotes(notes) {
 
   renderMindMap(notes.mindMap);
 
-  // seed chat with the demo Q&A
+  // reset the chat for this new content
   els.chatLog.innerHTML = '';
-  appendMessage('user', notes.demoQA.question);
-  appendMessage('ai', notes.demoQA.answer);
+  appendMessage(
+    'ai',
+    'Your notes are ready! Ask me a follow-up question about this content below.'
+  );
 }
 
 /* --- mind map: center node + radial branches, drawn with SVG --- */

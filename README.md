@@ -96,11 +96,16 @@ the full transcript, so follow-ups stay fast and within model limits.
    `embed`, `live`) go through `youtube-transcript-api`; anything else is
    fetched with `requests` and cleaned with BeautifulSoup (scripts, navs and
    footers stripped; `<article>`/`<main>` preferred).
-2. **AI layer** — text under ~20k characters is summarized in one Groq call.
-   Longer text is split on sentence boundaries, each chunk is summarized
-   (map), and the final structured notes are produced from the combined
-   summaries (reduce). The model is asked to return strict JSON, which is
-   validated and normalized before it reaches the frontend.
+2. **AI layer** — text under ~6k characters is summarized in one Groq call.
+   Longer text is split into ~6k-char chunks (on sentence boundaries, with a
+   word-boundary fallback for unpunctuated auto-captions), each chunk is
+   summarized (map), and the final structured notes are produced from the
+   combined summaries (reduce) — repeated if the summaries are still too big.
+   Calls are paced 20s apart to respect Groq's 12k tokens-per-minute free
+   tier, with an automatic wait-and-retry on 429s. The model is asked to
+   return strict JSON, which is validated and normalized before it reaches
+   the frontend. **Long videos therefore take a while by design** — ~20s per
+   6k-char chunk; the frontend loader keeps animating while it works.
 3. **Frontend** — `generateNotes()` in `index.html` POSTs the link to
    `http://localhost:5000/summarize` and renders the response; the mind map
    is built from the returned key points.
@@ -113,6 +118,7 @@ the full transcript, so follow-ups stay fast and within model limits.
 | `groq_key_loaded: false` at `/health` | Your `.env` is missing or the key name isn't `GROQ_API_KEY` |
 | “No transcript is available” | The video has no captions — try another video |
 | “Couldn't extract readable text” | The article is paywalled or rendered with JavaScript |
+| “rate limit” errors on long videos | Expected on Groq's free tier (12k TPM) — the server paces and retries automatically; very long videos just take several minutes |
 
 ---
 

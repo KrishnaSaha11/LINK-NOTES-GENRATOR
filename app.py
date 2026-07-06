@@ -19,13 +19,14 @@ with an appropriate HTTP status code, so the frontend can show it directly.
 import json
 import os
 import re
+import time
 
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from groq import Groq
+from groq import Groq, RateLimitError
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     CouldNotRetrieveTranscript,
@@ -59,12 +60,18 @@ ASK_INSTRUCTION = (
     "answer isn't in the content, say so honestly."
 )
 
-# Chunking limits (measured in characters; ~4 chars ≈ 1 token).
-# A single request under this size fits comfortably in one Groq call
-# even on rate-limited free tiers.
-CHUNK_SIZE = 20_000          # max characters per model call
+# Chunking / rate limits (sizes in characters).
+# Groq's free tier allows 12,000 tokens per minute (TPM), and its token
+# estimator is conservative on caption-style text — so each request must
+# stay WELL under that. 6,000 chars keeps even worst-case estimates in
+# the few-thousand-token range, and MAX_COMPLETION caps the output
+# allowance Groq adds to the estimate.
+CHUNK_SIZE = 6_000           # max characters per model call
+MAX_COMPLETION = 1_024       # max output tokens per call
+CHUNK_DELAY = 20             # seconds between chunked Groq calls (TPM pacing)
+RATE_LIMIT_COOLDOWN = 30     # seconds to wait before retrying a 429
 MAX_TOTAL_CHARS = 400_000    # hard cap so a huge page can't hang the server
-MAX_ASK_CONTEXT = 24_000     # max context characters accepted by /ask
+MAX_ASK_CONTEXT = 8_000      # max context characters accepted by /ask
 MAX_HISTORY_PAIRS = 3        # Q&A pairs of chat history kept per /ask call
 
 # A browser-like User-Agent — many sites block Python's default one.
@@ -227,35 +234,61 @@ def groq_chat(client, prompt_or_messages, force_json=False):
 
     Accepts either a plain prompt string or a full messages list
     (used by /ask to include the system prompt and chat history).
+    If Groq reports the per-minute token limit is exhausted (429),
+    waits once and retries before giving up.
     """
     if isinstance(prompt_or_messages, str):
         messages = [{"role": "user", "content": prompt_or_messages}]
     else:
         messages = prompt_or_messages
     kwargs = {"response_format": {"type": "json_object"}} if force_json else {}
-    completion = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=messages,
-        temperature=0.3,
-        **kwargs,
-    )
-    return completion.choices[0].message.content
+    for attempt in range(2):
+        try:
+            completion = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=MAX_COMPLETION,
+                **kwargs,
+            )
+            return completion.choices[0].message.content
+        except RateLimitError:
+            if attempt:  # already retried once — let the endpoint handle it
+                raise
+            time.sleep(RATE_LIMIT_COOLDOWN)
 
 
 def split_into_chunks(text, size=CHUNK_SIZE):
     """Split text into ~`size`-char chunks, breaking on sentence ends
-    so no chunk starts mid-sentence."""
+    so no chunk starts mid-sentence.
+
+    Important: YouTube auto-captions often have NO punctuation at all,
+    which makes the whole transcript one giant "sentence" — so any
+    oversized piece is additionally hard-split on word boundaries.
+    Without this, a long unpunctuated transcript went to Groq as a
+    single enormous request (the source of 413 rate_limit_exceeded).
+    """
     if len(text) <= size:
         return [text]
-    chunks, current = [], []
-    current_len = 0
-    # Split on sentence boundaries ("...end. Next") to get natural pieces.
+
+    pieces = []
     for sentence in re.split(r"(?<=[.!?])\s+", text):
-        if current_len + len(sentence) > size and current:
+        while len(sentence) > size:  # unpunctuated run — split on a space
+            cut = sentence.rfind(" ", size // 2, size)
+            if cut == -1:
+                cut = size
+            pieces.append(sentence[:cut])
+            sentence = sentence[cut:].lstrip()
+        if sentence:
+            pieces.append(sentence)
+
+    chunks, current, current_len = [], [], 0
+    for piece in pieces:
+        if current_len + len(piece) > size and current:
             chunks.append(" ".join(current))
             current, current_len = [], 0
-        current.append(sentence)
-        current_len += len(sentence) + 1
+        current.append(piece)
+        current_len += len(piece) + 1
     if current:
         chunks.append(" ".join(current))
     return chunks
@@ -276,23 +309,35 @@ def summarize_text(text):
     """
     client = groq_client()
     text = text[:MAX_TOTAL_CHARS]
-    chunks = split_into_chunks(text)
+    made_calls = False
 
-    if len(chunks) > 1:
-        # MAP: condense each chunk while keeping the important facts.
+    # MAP (possibly repeated): while the text is too big for one call,
+    # summarize it chunk by chunk and continue with the combined
+    # summaries. Very long videos may need a second pass — 34 chunk
+    # summaries can themselves exceed one request. CHUNK_DELAY pacing
+    # between calls keeps us inside Groq's tokens-per-minute budget.
+    passes = 0
+    while len(text) > CHUNK_SIZE and passes < 3:
+        chunks = split_into_chunks(text)
         partial_summaries = []
         for i, chunk in enumerate(chunks, start=1):
-            partial = groq_chat(
+            if made_calls:
+                time.sleep(CHUNK_DELAY)
+            partial_summaries.append(groq_chat(
                 client,
                 "The following is section "
                 f"{i} of {len(chunks)} of a longer document. Summarize it in "
-                "detail (10-15 sentences), preserving all key facts, names, "
+                "detail (8-12 sentences), preserving all key facts, names, "
                 "numbers and recommendations:\n\n" + chunk,
-            )
-            partial_summaries.append(partial)
-        # REDUCE: the exact instruction now runs over the combined summaries.
+            ))
+            made_calls = True
         text = "\n\n".join(partial_summaries)
+        passes += 1
 
+    # REDUCE: the exact instruction runs over what's left (the original
+    # text for short content, or the combined chunk summaries).
+    if made_calls:
+        time.sleep(CHUNK_DELAY)
     raw = groq_chat(client, f"{SUMMARY_INSTRUCTION}\n\nCONTENT:\n{text}",
                     force_json=True)
     return parse_model_json(raw), text
@@ -390,6 +435,11 @@ def summarize():
 
     except ExtractionError as err:
         return jsonify(error=str(err)), err.status
+    except RateLimitError:
+        return jsonify(
+            error="The AI service hit its per-minute rate limit even after "
+                  "waiting. Give it a minute and try again."
+        ), 429
     except Exception:  # anything unexpected — never leak a stack trace
         app.logger.exception("summarize failed")
         return jsonify(error="Something went wrong on the server. Please try again."), 500
@@ -447,6 +497,11 @@ def ask():
         answer = groq_chat(groq_client(), messages).strip()
     except ExtractionError as err:
         return jsonify(error=str(err)), err.status
+    except RateLimitError:
+        return jsonify(
+            error="The AI service hit its per-minute rate limit. "
+                  "Give it a minute and ask again."
+        ), 429
     except Exception:
         app.logger.exception("ask failed")
         return jsonify(

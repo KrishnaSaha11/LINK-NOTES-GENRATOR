@@ -1052,6 +1052,17 @@ async function generateNotes(url) {
   }
   if (!res.ok) throw new Error(data.error || 'Generation failed. Please try again.');
 
+  // Keep what the follow-up chat needs: the context /summarize actually
+  // used (full text, or chunk summaries for long content), the raw notes,
+  // and a fresh conversation history.
+  currentContext = data.context || '';
+  currentRawNotes = {
+    summary: data.summary,
+    key_points: data.key_points,
+    action_items: data.action_items,
+  };
+  chatHistory = [];
+
   return notesFromApi(data);
 }
 
@@ -1103,14 +1114,33 @@ function notesFromApi(data) {
   };
 }
 
-/* Follow-up chat — backend endpoint for this is the next step (/ask) */
-async function askQuestion(question, notes) {
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-  return (
-    'Follow-up questions aren’t wired to the backend yet — the ' +
-    '<strong>/summarize</strong> endpoint only generates notes. An ' +
-    '<strong>/ask</strong> endpoint is the next step!'
-  );
+/* Follow-up chat: POST /ask with the stored context + notes and the
+   last 3 Q&A pairs, so the model can handle back-and-forth questions. */
+async function askQuestion(question) {
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        context: currentContext,
+        notes: currentRawNotes,
+        history: chatHistory.slice(-3),
+      }),
+    });
+  } catch {
+    throw new Error('Could not reach the backend — is Flask running on port 5000?');
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('The server returned an unexpected response. Please try again.');
+  }
+  if (!res.ok) throw new Error(data.error || 'Couldn’t get an answer. Please try again.');
+  return data.answer;
 }
 
 /* ==================================================================
@@ -1141,7 +1171,10 @@ const els = {
   toastMsg: $('toastMsg'),
 };
 
-let currentNotes = null;
+let currentNotes = null;    // adapted notes rendered in the UI
+let currentContext = '';    // extracted text (or chunk summaries) for /ask
+let currentRawNotes = null; // raw notes JSON sent along with /ask
+let chatHistory = [];       // [{question, answer}] — last 3 sent to /ask
 
 /* ==================================================================
    GENERATE FLOW
@@ -1503,15 +1536,23 @@ els.chatForm.addEventListener('submit', async (e) => {
   if (!q || !currentNotes) return;
   els.chatInput.value = '';
 
-  // escape user input before injecting
-  const safe = q.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  appendMessage('user', safe);
+  appendMessage('user', escapeHtml(q));
 
+  // typing indicator while we wait for the model
   const thinking = appendMessage('ai', '<span class="typing"><span></span><span></span><span></span></span>');
   thinking.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  const answer = await askQuestion(q, currentNotes);
-  thinking.querySelector('.bubble').innerHTML = answer;
+  try {
+    const answer = await askQuestion(q);
+    // answers are plain text — escape, keep the model's line breaks
+    thinking.querySelector('.bubble').innerHTML =
+      escapeHtml(answer).replace(/\n/g, '<br>');
+    // remember the exchange so follow-ups have conversation history
+    chatHistory.push({ question: q, answer });
+  } catch (err) {
+    thinking.querySelector('.bubble').innerHTML =
+      '⚠️ ' + escapeHtml(err.message || 'Something went wrong. Please try again.');
+  }
   thinking.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 

@@ -55,6 +55,7 @@ Paste a YouTube or article link and hit **Generate Notes ✨**.
 ```json
 {
   "source": { "type": "youtube", "title": "Video title", "word_count": 5230 },
+  "context": "<the text the AI actually summarized — store this for /ask>",
   "summary": "Three-line overview of the content...",
   "key_points": [
     { "title": "Point title", "explanation": "One line of explanation" }
@@ -68,6 +69,26 @@ Paste a YouTube or article link and hit **Generate Notes ✨**.
 ```json
 { "error": "This video has captions disabled, so there is no transcript to read." }
 ```
+
+### `POST /ask`
+
+Follow-up questions about previously summarized content. Send back the
+`context` from `/summarize`, the notes, and (optionally) recent history:
+
+```json
+{
+  "question": "What did the speaker say about deadlines?",
+  "context": "<context string from /summarize>",
+  "notes": { "summary": "...", "key_points": [], "action_items": [] },
+  "history": [ { "question": "...", "answer": "..." } ]
+}
+```
+
+**Success (200):** `{ "answer": "..." }` — answered strictly from the
+provided context (the model says so honestly when the content doesn't
+contain the answer). Only the last 3 history pairs are used. For long
+content, `context` already holds the compact chunk summaries rather than
+the full transcript, so follow-ups stay fast and within model limits.
 
 ## How it works
 

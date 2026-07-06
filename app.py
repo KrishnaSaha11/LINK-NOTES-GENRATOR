@@ -46,12 +46,17 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 app = Flask(__name__)
 CORS(app)  # allow the frontend (any local origin / file://) to call us
 
-# The exact instruction the model receives (per spec — do not reword).
+# The exact instructions the model receives (per spec — do not reword).
 SUMMARY_INSTRUCTION = (
     "Extract from this content: (1) a 3-line QUICK SUMMARY, "
     "(2) 5-6 KEY POINTS each with one line of explanation, "
     "(3) 3-5 ACTION ITEMS. Return strictly as JSON with keys: "
     "summary, key_points, action_items."
+)
+ASK_INSTRUCTION = (
+    "You are answering follow-up questions about this content. Use ONLY the "
+    "provided context. Answer clearly and concisely (max 5-6 lines). If the "
+    "answer isn't in the content, say so honestly."
 )
 
 # Chunking limits (measured in characters; ~4 chars ≈ 1 token).
@@ -59,6 +64,8 @@ SUMMARY_INSTRUCTION = (
 # even on rate-limited free tiers.
 CHUNK_SIZE = 20_000          # max characters per model call
 MAX_TOTAL_CHARS = 400_000    # hard cap so a huge page can't hang the server
+MAX_ASK_CONTEXT = 24_000     # max context characters accepted by /ask
+MAX_HISTORY_PAIRS = 3        # Q&A pairs of chat history kept per /ask call
 
 # A browser-like User-Agent — many sites block Python's default one.
 HTTP_HEADERS = {
@@ -215,12 +222,20 @@ def groq_client():
     return Groq(api_key=GROQ_API_KEY)
 
 
-def groq_chat(client, prompt, force_json=False):
-    """One chat completion; optionally force valid-JSON output."""
+def groq_chat(client, prompt_or_messages, force_json=False):
+    """One chat completion; optionally force valid-JSON output.
+
+    Accepts either a plain prompt string or a full messages list
+    (used by /ask to include the system prompt and chat history).
+    """
+    if isinstance(prompt_or_messages, str):
+        messages = [{"role": "user", "content": prompt_or_messages}]
+    else:
+        messages = prompt_or_messages
     kwargs = {"response_format": {"type": "json_object"}} if force_json else {}
     completion = client.chat.completions.create(
         model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         temperature=0.3,
         **kwargs,
     )
@@ -247,11 +262,17 @@ def split_into_chunks(text, size=CHUNK_SIZE):
 
 
 def summarize_text(text):
-    """Run the full AI pipeline and return the parsed dict from the model.
+    """Run the full AI pipeline. Returns (parsed_notes, context_used).
 
     Short text  -> one call with SUMMARY_INSTRUCTION.
     Long text   -> summarize each chunk, then run SUMMARY_INSTRUCTION
                    over the combined chunk summaries (map-reduce).
+
+    `context_used` is what the final call actually saw — the full text
+    for short content, or the combined chunk summaries for long content.
+    The frontend stores it and sends it back with /ask questions, so
+    follow-ups on long content automatically use the compact summaries
+    instead of the oversized full transcript.
     """
     client = groq_client()
     text = text[:MAX_TOTAL_CHARS]
@@ -274,7 +295,7 @@ def summarize_text(text):
 
     raw = groq_chat(client, f"{SUMMARY_INSTRUCTION}\n\nCONTENT:\n{text}",
                     force_json=True)
-    return parse_model_json(raw)
+    return parse_model_json(raw), text
 
 
 def parse_model_json(raw):
@@ -364,7 +385,7 @@ def summarize():
         source["word_count"] = len(text.split())
 
         # -- AI layer ----------------------------------------------------
-        notes = summarize_text(text)
+        notes, context_used = summarize_text(text)
         notes = normalize_notes(notes)
 
     except ExtractionError as err:
@@ -374,7 +395,65 @@ def summarize():
         return jsonify(error="Something went wrong on the server. Please try again."), 500
 
     # -- respond ---------------------------------------------------------
-    return jsonify({"source": source, **notes})
+    # `context` is echoed back by the frontend on /ask calls (see
+    # summarize_text docstring).
+    return jsonify({"source": source, "context": context_used, **notes})
+
+
+@app.post("/ask")
+def ask():
+    """Answer a follow-up question about previously summarized content.
+
+    Body: {
+      "question": "...",
+      "context":  "<text returned by /summarize as 'context'>",
+      "notes":    <the generated notes JSON (string or object)>,
+      "history":  [ { "question": "...", "answer": "..." }, ... ]  # optional
+    }
+    """
+    body = request.get_json(silent=True) or {}
+    question = (body.get("question") or "").strip()
+    context = (body.get("context") or "").strip()
+    if not question:
+        return jsonify(error="Missing 'question' in request body."), 400
+    if not context:
+        return jsonify(error="Missing 'context' — generate notes for a link first."), 400
+
+    # Cap the context; /summarize already keeps it compact for long
+    # content (chunk summaries), so this only trims pathological input.
+    context = context[:MAX_ASK_CONTEXT]
+
+    notes = body.get("notes") or ""
+    if not isinstance(notes, str):
+        notes = json.dumps(notes)
+
+    # System message: the exact instruction + everything the model may use.
+    system = f"{ASK_INSTRUCTION}\n\nCONTEXT:\n{context}"
+    if notes:
+        system += f"\n\nGENERATED NOTES:\n{notes}"
+    messages = [{"role": "system", "content": system}]
+
+    # Replay the last few Q&A pairs so follow-ups can reference earlier
+    # answers ("what did you mean by that?").
+    history = body.get("history") or []
+    for pair in history[-MAX_HISTORY_PAIRS:]:
+        if isinstance(pair, dict) and pair.get("question") and pair.get("answer"):
+            messages.append({"role": "user", "content": str(pair["question"])[:2000]})
+            messages.append({"role": "assistant", "content": str(pair["answer"])[:2000]})
+
+    messages.append({"role": "user", "content": question[:2000]})
+
+    try:
+        answer = groq_chat(groq_client(), messages).strip()
+    except ExtractionError as err:
+        return jsonify(error=str(err)), err.status
+    except Exception:
+        app.logger.exception("ask failed")
+        return jsonify(
+            error="Couldn't get an answer right now. Please try again in a moment."
+        ), 502
+
+    return jsonify(answer=answer)
 
 
 @app.get("/health")

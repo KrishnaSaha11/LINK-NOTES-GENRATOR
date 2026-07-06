@@ -653,7 +653,7 @@ h1 .gradient-text {
   fill: none;
   opacity: 0.55;
 }
-.mm-node { cursor: default; }
+.mm-node { cursor: pointer; }
 .mm-node circle,
 .mm-node rect {
   transition: transform 0.3s var(--ease), filter 0.3s var(--ease);
@@ -669,6 +669,61 @@ h1 .gradient-text {
 }
 .mm-node .mm-sub { fill: var(--text-faint); font-family: var(--font-body); }
 .mm-center-glow { animation: orb-pulse 3.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+
+/* click-tooltip for mind map nodes */
+.mm-tooltip {
+  position: absolute;
+  z-index: 20;
+  width: max-content;
+  max-width: min(300px, calc(100% - 24px));
+  padding: 14px 16px 15px;
+  border-radius: 13px;
+  background: rgba(16, 16, 28, 0.97);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  box-shadow: 0 14px 44px -8px rgba(0,0,0,0.75), 0 0 28px rgba(139,92,246,0.25);
+  opacity: 0;
+  transform: translateY(6px) scale(0.97);
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+  pointer-events: none;
+}
+.mm-tooltip.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.mm-tooltip h4 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  padding-right: 22px;
+  display: flex;
+  gap: 8px;
+}
+.mm-tooltip h4::before {
+  content: '';
+  flex-shrink: 0;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-top: 6px;
+  background: var(--cyan);
+  box-shadow: 0 0 10px rgba(0,229,255,0.8);
+}
+.mm-tooltip p { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-top: 7px; }
+.mm-tooltip p:empty { display: none; }
+.mm-tooltip-close {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 24px; height: 24px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.25s var(--ease);
+}
+.mm-tooltip-close:hover { background: rgba(139,92,246,0.25); color: var(--text); }
 
 /* --- ask anything (chat) --- */
 .chat-card { padding: 26px; }
@@ -927,8 +982,13 @@ footer a:hover { color: var(--cyan); }
       <div class="section-label"><span class="icon">🧠</span> Mind Map</div>
       <div class="glass mindmap-card">
         <div class="mindmap-scroll">
-          <svg class="mindmap-svg" id="mindmapSvg" viewBox="0 0 800 460" role="img"
+          <svg class="mindmap-svg" id="mindmapSvg" viewBox="0 0 840 460" role="img"
                aria-label="Mind map of the content's main topic and branches"></svg>
+        </div>
+        <div class="mm-tooltip" id="mmTooltip" role="dialog" aria-label="Key point detail">
+          <button class="mm-tooltip-close" id="mmTooltipClose" aria-label="Close">✕</button>
+          <h4 id="mmTooltipTitle"></h4>
+          <p id="mmTooltipBody"></p>
         </div>
       </div>
     </div>
@@ -1030,20 +1090,17 @@ function notesFromApi(data) {
     keyPoints,
     actionItems: (data.action_items || []).map(escapeHtml),
     // Build the mind map from the key points: center = source title,
-    // one branch per point (labels truncated to fit the pills).
+    // one branch per point. Full text goes in — renderMindMap wraps
+    // titles onto multiple lines and the click-tooltip shows the
+    // complete point + explanation.
     mindMap: {
-      center: truncate(src.title || 'Key Ideas', 16),
+      center: escapeHtml(src.title || 'Key Ideas'),
       branches: keyPoints.slice(0, 6).map((p) => ({
-        label: truncate(p.title, 22),
-        sub: truncate(p.text, 28),
+        label: p.title,
+        sub: p.text,
       })),
     },
   };
-}
-
-function truncate(str, max) {
-  str = String(str);
-  return str.length > max ? str.slice(0, max - 1).trimEnd() + '…' : str;
 }
 
 /* Follow-up chat — backend endpoint for this is the next step (/ask) */
@@ -1213,20 +1270,91 @@ function renderNotes(notes) {
   );
 }
 
-/* --- mind map: center node + radial branches, drawn with SVG --- */
+/* --- mind map ------------------------------------------------------
+   Layout: glowing center orb with branches split into a LEFT and a
+   RIGHT column. Each pill wraps its FULL title over multiple lines and
+   is sized to fit; columns are stacked with fixed gaps, so nodes can
+   never overlap regardless of text length. Clicking a node opens a
+   tooltip with the full point + explanation.
+   ------------------------------------------------------------------ */
+
+/* Greedy word-wrap for SVG text (no native wrapping in <text>) */
+function wrapSvgText(str, maxChars) {
+  const words = String(str).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (let word of words) {
+    // hard-break single words longer than a line
+    while (word.length > maxChars) {
+      if (line) { lines.push(line); line = ''; }
+      lines.push(word.slice(0, maxChars - 1) + '-');
+      word = word.slice(maxChars - 1);
+    }
+    if (line && (line + ' ' + word).length > maxChars) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? line + ' ' + word : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [''];
+}
+
 function renderMindMap(map) {
-  const W = 800, H = 460;
+  // Sizing constants (SVG user units) tuned to the 13px pill font.
+  const W = 840;
+  const CHAR_W = 7.5;      // approx width of one character
+  const LINE_H = 17;       // line height inside a pill
+  const PAD_X = 15;        // pill horizontal padding
+  const PAD_Y = 11;        // pill vertical padding
+  const DOT_AREA = 20;     // room for the cyan dot before the text
+  const MAX_CHARS = 22;    // wrap titles at this many chars per line
+  const COL_GAP = 20;      // vertical gap between pills in a column
+  const COL_OFFSET = 165;  // distance from center to a pill's near edge
+
+  // 1. Measure every pill first (full title, wrapped — no truncation).
+  const nodes = map.branches.map((branch, i) => {
+    const lines = wrapSvgText(branch.label, MAX_CHARS);
+    const longest = Math.max(...lines.map((l) => l.length));
+    return {
+      branch, i, lines,
+      w: longest * CHAR_W + PAD_X * 2 + DOT_AREA,
+      h: lines.length * LINE_H + PAD_Y * 2,
+    };
+  });
+
+  // 2. Alternate nodes into right/left columns to keep them balanced.
+  const right = nodes.filter((_, i) => i % 2 === 0);
+  const left = nodes.filter((_, i) => i % 2 === 1);
+  const colHeight = (col) =>
+    col.reduce((sum, n) => sum + n.h, 0) + COL_GAP * Math.max(0, col.length - 1);
+
+  // Center orb: wrap the topic, cap at 3 lines, size the radius to fit.
+  const centerLines = wrapSvgText(map.center, 15);
+  const clipped = centerLines.length > 3;
+  const orbLines = centerLines.slice(0, 3);
+  if (clipped) orbLines[2] = orbLines[2].replace(/.{2}$/, '') + '…';
+  const orbR = Math.max(
+    56,
+    Math.max(...orbLines.map((l) => l.length)) * 4.4 + 14,
+    orbLines.length * 11 + 32
+  );
+
+  // 3. Canvas height = whatever the tallest element needs.
+  const H = Math.max(360, colHeight(left) + 60, colHeight(right) + 60, orbR * 2 + 80);
   const cx = W / 2, cy = H / 2;
-  const n = map.branches.length;
+
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = els.mindmapSvg;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = '';
+  hideMindmapTooltip();
 
-  // defs: gradients + glow filter
   svg.insertAdjacentHTML(
     'beforeend',
     `<defs>
-       <!-- userSpaceOnUse: objectBoundingBox gradients vanish on perfectly vertical paths -->
+       <!-- userSpaceOnUse: objectBoundingBox gradients vanish on straight paths -->
        <linearGradient id="mmLinkGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="${H}">
          <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.7"/>
          <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0.7"/>
@@ -1250,43 +1378,111 @@ function renderMindMap(map) {
   svg.appendChild(linksGroup);
   svg.appendChild(nodesGroup);
 
-  map.branches.forEach((branch, i) => {
-    // distribute around the center, slightly elliptical to fit the canvas
-    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-    const rx = 285, ry = 165;
-    const bx = cx + Math.cos(angle) * rx;
-    const by = cy + Math.sin(angle) * ry;
+  // 4. Stack each column vertically, centered on the orb.
+  const placeColumn = (col, side) => {
+    let y = cy - colHeight(col) / 2; // top of the column
+    col.forEach((node) => {
+      const ny = y + node.h / 2;     // pill vertical center
+      // pill x: near edge sits COL_OFFSET away from the center line
+      const px = side === 'right' ? cx + COL_OFFSET : cx - COL_OFFSET - node.w;
+      const nearX = side === 'right' ? px : px + node.w;
 
-    // curved connector
-    const mx = cx + Math.cos(angle) * rx * 0.5;
-    const my = cy + Math.sin(angle) * ry * 0.5 - 14;
-    const path = document.createElementNS(svgNS, 'path');
-    path.setAttribute('d', `M ${cx} ${cy} Q ${mx} ${my} ${bx} ${by}`);
-    path.setAttribute('class', 'mm-link');
-    linksGroup.appendChild(path);
+      // connector: orb edge -> pill near edge, gentle S-curve
+      const sx = side === 'right' ? cx + orbR - 6 : cx - orbR + 6;
+      const bend = side === 'right' ? 55 : -55;
+      const path = document.createElementNS(svgNS, 'path');
+      path.setAttribute('d',
+        `M ${sx} ${cy} C ${sx + bend} ${cy}, ${nearX - bend} ${ny}, ${nearX} ${ny}`);
+      path.setAttribute('class', 'mm-link');
+      linksGroup.appendChild(path);
 
-    // branch node (pill)
-    const g = document.createElementNS(svgNS, 'g');
-    g.setAttribute('class', 'mm-node');
-    const pillW = Math.max(120, branch.label.length * 8.2 + 40);
-    g.innerHTML =
-      `<rect x="${bx - pillW / 2}" y="${by - 26}" width="${pillW}" height="52" rx="15"
-             fill="rgba(20,20,34,0.9)" stroke="rgba(139,92,246,0.5)" stroke-width="1" filter="url(#mmGlow)"/>
-       <circle cx="${bx - pillW / 2 + 18}" cy="${by}" r="4" fill="#00E5FF" filter="url(#mmGlow)"/>
-       <text x="${bx - pillW / 2 + 32}" y="${by - 2}" font-size="13" font-weight="600">${branch.label}</text>
-       <text x="${bx - pillW / 2 + 32}" y="${by + 15}" font-size="10.5" class="mm-sub">${branch.sub}</text>`;
-    nodesGroup.appendChild(g);
-  });
+      // pill with the full wrapped title
+      const textX = px + PAD_X + DOT_AREA;
+      const firstLineY = ny - ((node.lines.length - 1) * LINE_H) / 2 + 4.5;
+      const textEls = node.lines
+        .map((l, li) => `<text x="${textX}" y="${firstLineY + li * LINE_H}"
+                               font-size="13" font-weight="600">${l}</text>`)
+        .join('');
+      const g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('class', 'mm-node');
+      g.setAttribute('data-idx', node.i);
+      g.innerHTML =
+        `<rect x="${px}" y="${ny - node.h / 2}" width="${node.w}" height="${node.h}" rx="14"
+               fill="rgba(20,20,34,0.9)" stroke="rgba(139,92,246,0.5)" stroke-width="1" filter="url(#mmGlow)"/>
+         <circle cx="${px + PAD_X + 5}" cy="${ny}" r="4" fill="#00E5FF" filter="url(#mmGlow)"/>
+         ${textEls}`;
+      nodesGroup.appendChild(g);
+      y += node.h + COL_GAP;
+    });
+  };
+  placeColumn(right, 'right');
+  placeColumn(left, 'left');
 
-  // center node on top
+  // 5. Center orb on top, its topic wrapped inside.
+  const orbTextY = cy - ((orbLines.length - 1) * 18) / 2 + 5;
+  const orbText = orbLines
+    .map((l, li) => `<text x="${cx}" y="${orbTextY + li * 18}" text-anchor="middle"
+                           font-size="14" font-weight="700">${l}</text>`)
+    .join('');
   const center = document.createElementNS(svgNS, 'g');
   center.setAttribute('class', 'mm-node');
+  center.setAttribute('data-idx', 'center');
   center.innerHTML =
-    `<circle class="mm-center-glow" cx="${cx}" cy="${cy}" r="52" fill="url(#mmCenterGrad)" filter="url(#mmGlow)"/>
-     <circle cx="${cx}" cy="${cy}" r="52" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
-     <text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="15" font-weight="700">${map.center}</text>`;
+    `<circle class="mm-center-glow" cx="${cx}" cy="${cy}" r="${orbR}" fill="url(#mmCenterGrad)" filter="url(#mmGlow)"/>
+     <circle cx="${cx}" cy="${cy}" r="${orbR}" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+     ${orbText}`;
   nodesGroup.appendChild(center);
+
+  // 6. Click a node -> tooltip with the full point + explanation.
+  nodesGroup.querySelectorAll('.mm-node').forEach((node) => {
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = node.getAttribute('data-idx');
+      const data = idx === 'center'
+        ? { label: map.center, sub: 'The central topic of this content.' }
+        : map.branches[Number(idx)];
+      showMindmapTooltip(node, data);
+    });
+  });
 }
+
+/* --- mind map tooltip --- */
+const mmTooltip = $('mmTooltip');
+const mmCard = mmTooltip.parentElement; // .mindmap-card (position: relative)
+
+function showMindmapTooltip(node, data) {
+  $('mmTooltipTitle').innerHTML = data.label; // already escaped upstream
+  $('mmTooltipBody').innerHTML = data.sub || '';
+
+  // Measure, then place above the node (below if there's no room),
+  // clamped inside the card. getBoundingClientRect handles the
+  // horizontal scroll on mobile automatically.
+  mmTooltip.classList.add('show');
+  const nodeRect = node.getBoundingClientRect();
+  const cardRect = mmCard.getBoundingClientRect();
+  const tipW = mmTooltip.offsetWidth;
+  const tipH = mmTooltip.offsetHeight;
+
+  let x = nodeRect.left - cardRect.left + nodeRect.width / 2 - tipW / 2;
+  x = Math.max(10, Math.min(x, cardRect.width - tipW - 10));
+  let y = nodeRect.top - cardRect.top - tipH - 12;
+  if (y < 8) y = nodeRect.bottom - cardRect.top + 12;
+
+  mmTooltip.style.left = `${x}px`;
+  mmTooltip.style.top = `${y}px`;
+}
+
+function hideMindmapTooltip() {
+  mmTooltip.classList.remove('show');
+}
+
+$('mmTooltipClose').addEventListener('click', hideMindmapTooltip);
+document.addEventListener('click', (e) => {
+  if (!mmTooltip.contains(e.target)) hideMindmapTooltip();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideMindmapTooltip();
+});
 
 /* ==================================================================
    CHAT — ask anything
